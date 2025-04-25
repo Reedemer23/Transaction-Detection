@@ -43,7 +43,7 @@ def get_db_connection():
     db = mysql.connector.connect(
         host="localhost",
         user="root",
-        password="https://_wE#ad356m",
+        password="PasswoRd",
         port=3306,
         database="users",
         auth_plugin="mysql_native_password"
@@ -274,7 +274,11 @@ def transaction_history():
         
         # Fetch all transactions for current user, remove exact duplicates in Python
         cursor.execute("SELECT DISTINCT transaction_amount, fraud_label FROM transactions")
-        records = cursor.fetchall()
+        records = cursor.fetchone()
+        if records:
+            st.subheader("🕒 Latest Transaction")
+            status = "Fraudulent Transaction" if records["fraud_label"] == 1 else "Legitimate Transaction"
+            st.markdown(f"**Amount:** ${records['transaction_amount']:.2f}  \n**Status:** {status}")
         
         if records:
             table_data = []
