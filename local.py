@@ -43,9 +43,9 @@ def get_db_connection():
     db = mysql.connector.connect(
         host="localhost",
         user="root",
-        password="PasswoRd",
+        password="Your_Password",
         port=3306,
-        database="users",
+        database="Your_Table",
         auth_plugin="mysql_native_password"
     )
     return db
