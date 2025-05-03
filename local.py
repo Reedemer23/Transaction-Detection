@@ -1,7 +1,8 @@
 import streamlit as st
+import numpy as np
 import torch
+import joblib
 import torch.nn as nn
-import torch.serialization
 import bcrypt
 import json
 import mysql.connector
@@ -9,43 +10,22 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import base64
-from datetime import datetime, timedelta
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from datetime import datetime
+from sklearn.preprocessing import StandardScaler
 
-# Model definition
-class FraudDetector(nn.Module):
-    def __init__(self, input_size):
-        super(FraudDetector, self).__init__()
-        self.fc1 = nn.Linear(input_size, 64)
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 2)
-        self.relu = nn.ReLU()
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.softmax(self.fc3(x))
-        return x
-
-# Load model and preprocessors
-input_size = 20
-model = FraudDetector(input_size)
-model.load_state_dict(torch.load('fraud_detector.pth'))
-model.eval()
-
-torch.serialization.add_safe_globals([StandardScaler, LabelEncoder])
-scaler = torch.load('scaler.pth', weights_only=False)
-label_encoders = torch.load('label_encoders.pth', weights_only=False)
+# Load Random Forest model and preprocessors
+rf_model = joblib.load('fraud_rf_model.pkl')  
+scaler = joblib.load('fraud_scaler.pkl')   
+label_encoders = joblib.load('label_encoders.pkl')
 
 # MySQL Connection
 def get_db_connection():
     db = mysql.connector.connect(
         host="localhost",
         user="root",
-        password="Your_Password",
+        password="Your_Passwd",
         port=3306,
-        database="Your_Table",
+        database="users",
         auth_plugin="mysql_native_password"
     )
     return db
@@ -86,34 +66,37 @@ def prepare_features(input_data):
                 features.append(float(val))
             except:
                 features.append(0.0)
+
         # Categorical features via label encoding
         categorical_cols = [
             'device_type', 'merchant_category', 'authentication_method', 'card_type'
         ]
         for col in categorical_cols:
             encoder = label_encoders.get(col)
-            raw = input_data.get(col, None)
-            try:
-                encoded = encoder.transform([raw])[0] if raw in encoder.classes_ else 0
-            except:
+            raw_val = input_data.get(col, "")
+            if encoder:
+                try:
+                    encoded = encoder.transform([raw_val])[0] if raw_val in encoder.classes_ else 0
+                except:
+                    encoded = 0
+            else:
                 encoded = 0
             features.append(float(encoded))
-        # Adjust feature length to match scaler
+        
         expected = scaler.mean_.shape[0]
         actual = len(features)
+
         if actual < expected:
-            # Pad with zeros
             features.extend([0.0] * (expected - actual))
-        elif actual > expected:
-            # Truncate extra features
+        elif actual > expected: 
             features = features[:expected]
-        # Scale and return
+
         scaled = scaler.transform([features])
         return scaled[0]
+    
     except Exception as e:
         st.error(f"Feature preparation error: {e}")
         return None
-
 
 # UI Configuration
 st.set_page_config(page_title="Online Banking Transactions", layout="wide")
@@ -200,6 +183,18 @@ def signup():
         finally:
             conn.close()
 
+def convert_numpy_types(data):
+    for k, v in data.items():
+        if isinstance(v, (np.integer, np.int64)):
+            data[k] = int(v)
+        elif isinstance(v, (np.floating, np.float64)):
+            data[k] = float(v)
+        elif isinstance(v, np.bool_):
+            data[k] = bool(v)
+        elif isinstance(v, np.ndarray):
+            data[k] = v.tolist()
+    return data
+
 def transaction_predictor():
     st.markdown(f"<div style='text-align: right; font-weight: bold; font-size: 18px;'>Welcome, {st.session_state.username}</div>", unsafe_allow_html=True)
     st.title("🤖 Transaction Prediction")
@@ -218,12 +213,19 @@ def transaction_predictor():
 
                 if data:
                     try:
-                        numeric_features = prepare_features(data)
-                        input_tensor = torch.tensor([numeric_features], dtype=torch.float32)
-                        output = model(input_tensor)
-                        prediction = torch.argmax(output, dim=1).item()
+                        # Prepare features (already includes scaling)
+                        scaled_input = prepare_features(data)
+                        if scaled_input is None:
+                            st.error("Feature preparation failed.")
+                            return
+
+                        # Make prediction using scaled input
+                        prediction = rf_model.predict([scaled_input])[0]
                         label = "Fraudulent Transaction" if prediction == 1 else "Legitimate Transaction"
                         st.success(f"Prediction: {label}")
+
+                        # Convert numpy types in data to native Python types
+                        data = convert_numpy_types(data)
 
                         try:
                             conn = get_db_connection()
@@ -239,20 +241,20 @@ def transaction_predictor():
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                                 (
-                                    data.get('account_balance'),
-                                    data.get('device_type'),
-                                    data.get('transaction_amount'),
+                                    float(data.get('account_balance', 0)),
+                                    str(data.get('device_type', '')),
+                                    float(data.get('transaction_amount', 0)),
                                     data.get('timestamp', datetime.now().isoformat()),
-                                    data.get('merchant_category'),
-                                    data.get('previous_fraudulent_activity'),
-                                    data.get('failed_transaction_count_7d'),
-                                    data.get('authentication_method'),
-                                    data.get('daily_transaction_count'),
-                                    data.get('avg_transaction_amount_7d'),
-                                    data.get('card_type'),
-                                    data.get('card_age'),
-                                    data.get('risk_score'),
-                                    prediction
+                                    str(data.get('merchant_category', '')),
+                                    int(data.get('previous_fraudulent_activity', 0)),
+                                    int(data.get('failed_transaction_count_7d', 0)),
+                                    str(data.get('authentication_method', '')),
+                                    int(data.get('daily_transaction_count', 0)),
+                                    float(data.get('avg_transaction_amount_7d', 0)),
+                                    str(data.get('card_type', '')),
+                                    int(data.get('card_age', 0)),
+                                    float(data.get('risk_score', 0)),
+                                    int(prediction)
                                 )
                             )
                             conn.commit()
@@ -268,35 +270,50 @@ def transaction_predictor():
 
 def transaction_history():
     st.title("💰 Transaction History")
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Fetch all transactions for current user, remove exact duplicates in Python
-        cursor.execute("SELECT DISTINCT transaction_amount, fraud_label FROM transactions")
-        records = cursor.fetchone()
-        if records:
-            st.subheader("🕒 Latest Transaction")
-            status = "Fraudulent Transaction" if records["fraud_label"] == 1 else "Legitimate Transaction"
-            st.markdown(f"**Amount:** ${records['transaction_amount']:.2f}  \n**Status:** {status}")
-        
-        if records:
-            table_data = []
-            seen = set()
-            for rec in records:
-                key = (rec["transaction_amount"], rec["fraud_label"])
-                if key not in seen:
-                    seen.add(key)
-                    status = "Fraudulent Transaction" if rec["fraud_label"] == 1 else "Legitimate Transaction"
-                    table_data.append({
-                        "Transaction ID": len(table_data) + 1,  
-                        "Transaction Amount": f"${rec['transaction_amount']:.2f}",
-                        "Status": status
-                    })
 
-            st.table(table_data)
-        else:
+        # Fetch all transactions with ID (required for deletion)
+        cursor.execute("SELECT id, transaction_amount, fraud_label FROM transactions")
+        records = cursor.fetchall()
+
+        if not records:
             st.info("No transactions found.")
+            return
+
+        table_data = []
+        id_map = {} 
+        for idx, rec in enumerate(records, start=1):
+            icon = "❌" if rec["fraud_label"] == 1 else "✅"
+            status = f"{icon} Fraudulent Transaction" if rec["fraud_label"] == 1 else f"{icon} Legitimate Transaction"
+            table_data.append({
+                "Transaction ID": idx,
+                "Transaction Amount": f"${rec['transaction_amount']:.2f}",
+                "Status": status
+            })
+            id_map[idx] = rec["id"]
+
+        st.table(table_data)
+
+        st.markdown("---")
+        st.subheader("🗑️ Delete a Transaction")
+        delete_id = st.number_input("Enter Transaction ID to Delete", min_value=1, max_value=len(table_data), step=1)
+
+        if st.button("Delete Transaction"):
+            try:
+                transaction_id = id_map.get(delete_id)
+                if transaction_id:
+                    cursor.execute("DELETE FROM transactions WHERE id = %s", (transaction_id,))
+                    conn.commit()
+                    st.success(f"Transaction {delete_id} deleted successfully.")
+                    st.rerun()
+                else:
+                    st.warning("Invalid Transaction ID selected.")
+            except Exception as e:
+                st.error(f"Error deleting transaction: {e}")
+
     except Exception as e:
         st.error(f"Error loading history: {e}")
     finally:
@@ -330,54 +347,45 @@ def transaction_graph():
             end_date_str = st.text_input("End Date (dd-mm-yy)", value=datetime.now().strftime("%d-%m-%y"))
 
         try:
-            start_date = datetime.strptime(start_date_str, "%d-%m-%y")
-            end_date = datetime.strptime(end_date_str, "%d-%m-%y")
+            if not start_date_str.strip() or not end_date_str.strip():
+                st.warning("Please enter both start and end dates.")
+                st.stop()
+
+            start_date = datetime.strptime(start_date_str.strip(), "%d-%m-%y")
+            end_date = datetime.strptime(end_date_str.strip(), "%d-%m-%y")
 
             if start_date > end_date:
                 st.warning("Start date must be before end date.")
-                return
+                st.stop()
 
-            # Filter data
             filtered_df = df[(df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)]
 
             if filtered_df.empty:
                 st.info("No data found for the selected date range.")
-                return
+                st.stop()
 
-            # Format X-axis as mm-yy
-            filtered_df['period'] = filtered_df['timestamp'].dt.strftime('%m-%y')
+            filtered_df['timestamp_str'] = filtered_df['timestamp'].dt.strftime('%d-%m-%y')
 
-            # Group by month-year
-            grouped = filtered_df.groupby('period').agg({
-                'transaction_amount': 'sum',
-                'avg_transaction_amount_7d': 'mean'
-            }).reset_index()
-
-            # Sort by actual datetime for proper order
-            grouped['period_dt'] = pd.to_datetime(grouped['period'], format='%m-%y')
-            grouped = grouped.sort_values('period_dt')
-
-            # Plot
             fig = px.line(
-                grouped,
-                x='period',
+                filtered_df,
+                x='timestamp_str',
                 y=['transaction_amount', 'avg_transaction_amount_7d'],
-                labels={'value': 'Amount', 'period': 'Month-Year'},
+                labels={'value': 'Amount', 'timestamp_str': 'Date'},
                 title=f"Transactions from {start_date_str} to {end_date_str}"
             )
 
             fig.update_layout(
-                xaxis_title="Month-Year",
+                xaxis_title="Date",
                 yaxis_title="Amount",
                 xaxis_tickangle=45,
-                xaxis=dict(type='category')  
+                xaxis=dict(type='category'),
+                yaxis=dict(rangemode="tozero")
             )
 
             st.plotly_chart(fig, use_container_width=True)
 
         except ValueError:
             st.error("Invalid date format. Please enter in dd-mm-yy.")
-
     except Exception as e:
         st.error(f"Error loading data: {e}")
 
