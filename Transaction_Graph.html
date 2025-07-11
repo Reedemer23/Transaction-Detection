@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 Transaction Graph</title>
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            width: 80%;
+            margin: 40px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+        }
+        .filter {
+            font-size: 16px;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <h2>📊 User Transaction History</h2>
+            <select id="timeFilter" class="filter" onchange="updateChart()">
+                <option value="week" selected>Last 7 Days</option>
+                <option value="month">Last 30 Days</option>
+                <option value="year">Last 12 Months</option>
+            </select>
+        </div>
+
+        <canvas id="transactionChart"></canvas>
+    </div>
+
+    <script>
+        function getTransactions() {
+            return JSON.parse(localStorage.getItem("transactions")) || [];
+        }
+
+        function filterTransactions(timeframe) {
+            let transactions = getTransactions();
+            let now = new Date();
+            
+            return transactions.filter(transaction => {
+                let date = new Date(transaction.date);
+                if (timeframe === "week") {
+                    return (now - date) / (1000 * 60 * 60 * 24) <= 7;
+                } else if (timeframe === "month") {
+                    return (now - date) / (1000 * 60 * 60 * 24) <= 30;
+                } else if (timeframe === "year") {
+                    return (now - date) / (1000 * 60 * 60 * 24) <= 365;
+                }
+                return true;
+            }).sort((a, b) => new Date(a.date) - new Date(b.date)); // Sort transactions by date
+        }
+
+        function prepareChartData(timeframe) {
+            let filteredTransactions = filterTransactions(timeframe);
+            let labels = filteredTransactions.map(t => new Date(t.date).toLocaleDateString());
+            let amounts = filteredTransactions.map(t => parseFloat(t.amount));
+
+            return { labels, amounts };
+        }
+
+        let ctx = document.getElementById('transactionChart').getContext('2d');
+        let chartData = prepareChartData("week");
+
+        let transactionChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.labels,
+                datasets: [{
+                    label: 'Transaction Amount ($)',
+                    data: chartData.amounts,
+                    borderColor: 'blue',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                animation: {
+                    duration: 1000,
+                    easing: 'easeInOutQuad'
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Date' } },
+                    y: { title: { display: true, text: 'Amount ($)' } }
+                }
+            }
+        });
+
+        function updateChart() {
+            let selectedTimeframe = document.getElementById("timeFilter").value;
+            let newData = prepareChartData(selectedTimeframe);
+
+            transactionChart.data.labels = newData.labels;
+            transactionChart.data.datasets[0].data = newData.amounts;
+            transactionChart.update();
+        }
+
+        // Auto-refresh graph every 5 seconds to reflect new transactions
+        setInterval(updateChart, 5000);
+    </script>
+
+</body>
+</html>
