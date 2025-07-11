@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transactions</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background-color: grey;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        .transactions-section {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .fraud {
+            background-color: #ff4d4d;
+            color: white;
+            font-weight: bold;
+        }
+        .safe {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <div>🏦 Online Banking Transaction</div>
+            <div class="welcome">Welcome, <span id="usernameDisplay">{username}</span>!</div>
+        </div>
+
+        <div class="transactions-section">
+            <h2>💰 Transaction History</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Transaction ID</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="transactionsTable">
+                    <!-- Transactions will be dynamically inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        const username = localStorage.getItem('username');
+        if (username) {
+            document.getElementById('usernameDisplay').textContent = username;
+        } else {
+            // Redirect to login if no username is found
+            window.location.href = '/login';
+        }
+        
+        let lastTransactionId = 0; // Store the last displayed transaction ID
+
+        async function fetchTransactions() {
+            try {
+                let response = await fetch("/add_transaction"); 
+                let transactions = await response.json();
+
+                if (transactions.error) {
+                    console.error("Error fetching transactions:", transactions.error);
+                    return;
+                }
+
+                // Populate only new transactions
+                const tableBody = document.getElementById("transactionsTable");
+
+                transactions.forEach((transaction) => {
+                    if (transaction.id > lastTransactionId) { // Only add new transactions
+                        let row = document.createElement("tr");
+                        row.innerHTML = `
+                            <td>${transaction.id}</td>
+                            <td>${transaction.transaction_amount}</td>
+                            <td class="${transaction.fraud_label.toLowerCase()}">${transaction.fraud_label}</td>
+                        `;
+                        tableBody.appendChild(row);
+                        lastTransactionId = transaction.id; // Update last transaction ID
+                    }
+                });
+            } catch (error) {
+                console.error("Failed to load transactions:", error);
+            }
+        }
+
+        // Fetch transactions every 5 seconds to update the table automatically
+        setInterval(fetchTransactions, 5000);
+
+        fetchTransactions(); // Initial fetch when the page loads
+    </script>        
+</body>
+</html>
