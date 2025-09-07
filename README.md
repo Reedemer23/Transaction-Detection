@@ -1,7 +1,7 @@
 # Transaction-Detection
 This project leverages the power of Artificial Intelligence to detect fraudulent and legitimate financial transactions with high accuracy. By analyzing user behavior and transaction patterns, the model helps identify suspicious activities that deviate from normal behavior in real-time.
 
-🔍 How It Works
+How It Works
 -------------------
 Data Collection: The system processes structured transaction data, including features such as amount, timestamp, user demographics, merchant info, and historical patterns.
 
@@ -31,14 +31,14 @@ Monitor fraud detection stats
 
 Analyze trends over time via interactive graphs
 
-🚀 Key Features
+Key Features
 -------------------------------------
-🔐 Secure user authentication (Sign Up / Sign In)
+Secure user authentication (Sign Up / Sign In)
 
-📁 Upload .txt or .json transaction files
+Upload .txt or .json transaction files
 
-✅ Instant fraud prediction
+Instant fraud prediction
 
-📊 Interactive visual reports
+Interactive visual reports
 
-💾 MySQL database integration for persistent storage
+MySQL database integration for persistent storage
